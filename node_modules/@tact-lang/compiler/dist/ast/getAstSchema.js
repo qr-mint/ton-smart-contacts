@@ -1,0 +1,367 @@
+"use strict";
+/**
+ * AST node constructors are not just constructors: they also generate ids
+ * We have this file so that the "current id" state would not be stored globally
+ */
+Object.defineProperty(exports, "__esModule", { value: true });
+exports.getAstSchema = void 0;
+const getAstSchema = (factory, toSrcInfo) => {
+    const createNode = (src) => {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        return factory.createNode(src);
+    };
+    return {
+        Module: (imports, items) => createNode({ kind: "module", imports, items }),
+        Import: (source, loc) => createNode({
+            kind: "import",
+            importPath: source,
+            loc: toSrcInfo(loc),
+        }),
+        PrimitiveTypeDecl: (name, loc) => createNode({
+            kind: "primitive_type_decl",
+            name,
+            loc: toSrcInfo(loc),
+        }),
+        FunctionDef: (attributes, name, retType, params, statements, loc) => createNode({
+            kind: "function_def",
+            attributes,
+            name,
+            return: retType,
+            params,
+            statements,
+            loc: toSrcInfo(loc),
+        }),
+        AsmFunctionDef: (shuffle, attributes, name, retType, params, instructions, loc) => createNode({
+            kind: "asm_function_def",
+            shuffle,
+            attributes,
+            name,
+            return: retType,
+            params,
+            instructions,
+            loc: toSrcInfo(loc),
+        }),
+        FunctionDecl: (attributes, name, retType, params, loc) => createNode({
+            kind: "function_decl",
+            attributes,
+            name,
+            return: retType,
+            params,
+            loc: toSrcInfo(loc),
+        }),
+        NativeFunctionDecl: (attributes, name, nativeName, params, retType, loc) => createNode({
+            kind: "native_function_decl",
+            attributes,
+            name,
+            nativeName,
+            params,
+            return: retType,
+            loc: toSrcInfo(loc),
+        }),
+        ConstantDef: (attributes, name, type, initializer, loc) => createNode({
+            kind: "constant_def",
+            attributes,
+            name,
+            type,
+            initializer,
+            loc: toSrcInfo(loc),
+        }),
+        ConstantDecl: (attributes, name, type, loc) => createNode({
+            kind: "constant_decl",
+            attributes,
+            name,
+            type,
+            loc: toSrcInfo(loc),
+        }),
+        StructDecl: (name, fields, loc) => createNode({
+            kind: "struct_decl",
+            name,
+            fields,
+            loc: toSrcInfo(loc),
+        }),
+        MessageDecl: (name, opcode, fields, loc) => createNode({
+            kind: "message_decl",
+            name,
+            opcode,
+            fields,
+            loc: toSrcInfo(loc),
+        }),
+        Contract: (name, traits, attributes, params, declarations, loc) => createNode({
+            kind: "contract",
+            name,
+            traits,
+            attributes,
+            params,
+            declarations,
+            loc: toSrcInfo(loc),
+        }),
+        Trait: (name, traits, attributes, declarations, loc) => createNode({
+            kind: "trait",
+            name,
+            traits,
+            attributes,
+            declarations,
+            loc: toSrcInfo(loc),
+        }),
+        FieldDecl: (name, type, initializer, as, loc) => createNode({
+            kind: "field_decl",
+            name,
+            type,
+            initializer,
+            as,
+            loc: toSrcInfo(loc),
+        }),
+        Receiver: (selector, statements, loc) => createNode({
+            kind: "receiver",
+            selector,
+            statements,
+            loc: toSrcInfo(loc),
+        }),
+        ReceiverSimple: (param) => createNode({
+            kind: "simple",
+            param,
+        }),
+        ReceiverFallback: () => createNode({
+            kind: "fallback",
+        }),
+        ReceiverComment: (comment) => createNode({
+            kind: "comment",
+            comment,
+        }),
+        ReceiverInternal: (subKind, loc) => createNode({
+            kind: "internal",
+            subKind,
+            loc: toSrcInfo(loc),
+        }),
+        ReceiverExternal: (subKind, loc) => createNode({
+            kind: "external",
+            subKind,
+            loc: toSrcInfo(loc),
+        }),
+        ReceiverBounce: (param, loc) => createNode({
+            kind: "bounce",
+            param,
+            loc: toSrcInfo(loc),
+        }),
+        ContractInit: (params, statements, loc) => createNode({
+            kind: "contract_init",
+            params,
+            statements,
+            loc: toSrcInfo(loc),
+        }),
+        StatementLet: (name, type, expression, loc) => createNode({
+            kind: "statement_let",
+            name,
+            type,
+            expression,
+            loc: toSrcInfo(loc),
+        }),
+        StatementDestruct: (type, identifiers, ignoreUnspecifiedFields, expression, loc) => createNode({
+            kind: "statement_destruct",
+            type,
+            identifiers,
+            ignoreUnspecifiedFields,
+            expression,
+            loc: toSrcInfo(loc),
+        }),
+        StatementReturn: (expression, loc) => createNode({
+            kind: "statement_return",
+            expression,
+            loc: toSrcInfo(loc),
+        }),
+        StatementExpression: (expression, loc) => createNode({
+            kind: "statement_expression",
+            expression,
+            loc: toSrcInfo(loc),
+        }),
+        StatementAssign: (path, expression, loc) => createNode({
+            kind: "statement_assign",
+            path,
+            expression,
+            loc: toSrcInfo(loc),
+        }),
+        StatementAugmentedAssign: (op, path, expression, loc) => createNode({
+            kind: "statement_augmentedassign",
+            op,
+            path,
+            expression,
+            loc: toSrcInfo(loc),
+        }),
+        StatementCondition: (condition, trueStatements, falseStatements, loc) => createNode({
+            kind: "statement_condition",
+            condition,
+            trueStatements,
+            falseStatements,
+            loc: toSrcInfo(loc),
+        }),
+        StatementWhile: (condition, statements, loc) => createNode({
+            kind: "statement_while",
+            condition,
+            statements,
+            loc: toSrcInfo(loc),
+        }),
+        StatementUntil: (condition, statements, loc) => createNode({
+            kind: "statement_until",
+            condition,
+            statements,
+            loc: toSrcInfo(loc),
+        }),
+        StatementRepeat: (iterations, statements, loc) => createNode({
+            kind: "statement_repeat",
+            iterations,
+            statements,
+            loc: toSrcInfo(loc),
+        }),
+        StatementTry: (statements, loc, catchBlock) => createNode({
+            kind: "statement_try",
+            statements,
+            catchBlock: catchBlock,
+            loc: toSrcInfo(loc),
+        }),
+        StatementForEach: (keyName, valueName, map, statements, loc) => createNode({
+            kind: "statement_foreach",
+            keyName,
+            valueName,
+            map,
+            statements,
+            loc: toSrcInfo(loc),
+        }),
+        StatementBlock: (statements, loc) => createNode({
+            kind: "statement_block",
+            statements,
+            loc: toSrcInfo(loc),
+        }),
+        TypeId: (text, loc) => createNode({
+            kind: "type_id",
+            text,
+            loc: toSrcInfo(loc),
+        }),
+        OptionalType: (typeArg, loc) => createNode({
+            kind: "optional_type",
+            typeArg,
+            loc: toSrcInfo(loc),
+        }),
+        MapType: (keyType, keyStorageType, valueType, valueStorageType, loc) => createNode({
+            kind: "map_type",
+            keyType,
+            keyStorageType,
+            valueType,
+            valueStorageType,
+            loc: toSrcInfo(loc),
+        }),
+        BouncedMessageType: (messageType, loc) => createNode({
+            kind: "bounced_message_type",
+            messageType,
+            loc: toSrcInfo(loc),
+        }),
+        OpBinary: (op, left, right, loc) => createNode({
+            kind: "op_binary",
+            op,
+            left,
+            right,
+            loc: toSrcInfo(loc),
+        }),
+        OpUnary: (op, operand, loc) => createNode({
+            kind: "op_unary",
+            op,
+            operand,
+            loc: toSrcInfo(loc),
+        }),
+        FieldAccess: (aggregate, field, loc) => createNode({
+            kind: "field_access",
+            aggregate,
+            field,
+            loc: toSrcInfo(loc),
+        }),
+        MethodCall: (self, method, args, loc) => createNode({
+            kind: "method_call",
+            self,
+            method,
+            args,
+            loc: toSrcInfo(loc),
+        }),
+        StaticCall: (funcId, args, loc) => createNode({
+            kind: "static_call",
+            function: funcId,
+            args,
+            loc: toSrcInfo(loc),
+        }),
+        StructInstance: (type, args, loc) => createNode({
+            kind: "struct_instance",
+            type,
+            args,
+            loc: toSrcInfo(loc),
+        }),
+        StructFieldInitializer: (field, initializer, loc) => createNode({
+            kind: "struct_field_initializer",
+            field,
+            initializer,
+            loc: toSrcInfo(loc),
+        }),
+        InitOf: (contract, args, loc) => createNode({
+            kind: "init_of",
+            contract,
+            args,
+            loc: toSrcInfo(loc),
+        }),
+        CodeOf: (contract, loc) => createNode({
+            kind: "code_of",
+            contract,
+            loc: toSrcInfo(loc),
+        }),
+        Conditional: (condition, thenBranch, elseBranch, loc) => createNode({
+            kind: "conditional",
+            condition,
+            thenBranch,
+            elseBranch,
+            loc: toSrcInfo(loc),
+        }),
+        Id: (text, loc) => createNode({ kind: "id", text, loc: toSrcInfo(loc) }),
+        FuncId: (text, loc) => createNode({
+            kind: "func_id",
+            text,
+            loc: toSrcInfo(loc),
+        }),
+        Null: (loc) => createNode({ kind: "null", loc: toSrcInfo(loc) }),
+        String: (value, loc) => createNode({
+            kind: "string",
+            value,
+            loc: toSrcInfo(loc),
+        }),
+        Boolean: (value, loc) => createNode({
+            kind: "boolean",
+            value,
+            loc: toSrcInfo(loc),
+        }),
+        Number: (base, value, loc) => createNode({
+            kind: "number",
+            base,
+            value,
+            loc: toSrcInfo(loc),
+        }),
+        ContractAttribute: (name, loc) => createNode({
+            type: "interface",
+            name,
+            loc: toSrcInfo(loc),
+        }),
+        FunctionAttributeGet: (methodId, loc) => ({
+            kind: "function_attribute",
+            type: "get",
+            methodId,
+            loc: toSrcInfo(loc),
+        }),
+        FunctionAttribute: (type, loc) => ({
+            kind: "function_attribute",
+            type,
+            loc: toSrcInfo(loc),
+        }),
+        ConstantAttribute: (type, loc) => ({ type, loc: toSrcInfo(loc) }),
+        TypedParameter: (name, type, loc) => createNode({
+            kind: "typed_parameter",
+            name,
+            type,
+            loc: toSrcInfo(loc),
+        }),
+    };
+};
+exports.getAstSchema = getAstSchema;

@@ -1,0 +1,7 @@
+int op::transfer() asm "0xf8a7ea5 PUSHINT";
+int op::internal_transfer() asm "0x178d4519 PUSHINT";
+int op::transfer_notification() asm "0x7362d09c PUSHINT";
+int op::batch_tranfer() asm "0x7554d09d PUSHINT";
+
+int op::withdraw() asm "0x7661d09d PUSHINT";
+int op::withdraw_token() asm "0x7662d09d PUSHINT";

@@ -1,0 +1,16 @@
+import type * as A from "../ast/ast";
+import type { FactoryAst } from "../ast/ast-helpers";
+import type { CompilerContext } from "../context/context";
+import type { ConstantDescription, FunctionDescription, TypeDescription, TypeRef } from "./types";
+export declare const toBounced: (type: string) => string;
+export declare function resolveTypeRef(ctx: CompilerContext, type: A.AstType): TypeRef;
+export declare function resolveDescriptors(ctx: CompilerContext, Ast: FactoryAst): CompilerContext;
+export declare function getType(ctx: CompilerContext, ident: A.AstId | A.AstTypeId | string): TypeDescription;
+export declare function getAllTypes(ctx: CompilerContext): TypeDescription[];
+export declare function getContracts(ctx: CompilerContext): string[];
+export declare function getStaticFunction(ctx: CompilerContext, name: string): FunctionDescription;
+export declare function hasStaticFunction(ctx: CompilerContext, name: string): boolean;
+export declare function getStaticConstant(ctx: CompilerContext, name: string): ConstantDescription;
+export declare function hasStaticConstant(ctx: CompilerContext, name: string): boolean;
+export declare function getAllStaticFunctions(ctx: CompilerContext): FunctionDescription[];
+export declare function getAllStaticConstants(ctx: CompilerContext): ConstantDescription[];

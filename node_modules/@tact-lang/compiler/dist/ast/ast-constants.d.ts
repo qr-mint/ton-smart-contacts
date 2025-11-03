@@ -1,0 +1,10 @@
+import type { AstAugmentedAssignOperation, AstBinaryOperation, AstFunctionAttributeName, AstUnaryOperation, ImportType } from "./ast";
+export declare const astAugmentedAssignOperations: readonly AstAugmentedAssignOperation[];
+export declare const astBinaryOperations: readonly AstBinaryOperation[];
+export declare const astUnaryOperations: readonly AstUnaryOperation[];
+export declare const astNumberBases: readonly number[];
+export declare const importTypes: readonly ImportType[];
+type ConstantAttributeName = "virtual" | "override" | "abstract";
+export declare const astConstantAttributeNames: readonly ConstantAttributeName[];
+export declare const astFunctionAttributeNames: readonly AstFunctionAttributeName[];
+export {};

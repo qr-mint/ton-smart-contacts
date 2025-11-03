@@ -1,0 +1,175 @@
+;; TON NFT Item Smart Contract with royalty to the collection owner, remaining to the NFT owner, and 0.05 TON left for storage
+
+{-
+    This contract:
+    1. Forwards a percentage of any incoming TONs to the collection owner (royalty).
+    2. Sends the remaining amount to the NFT owner.
+    3. Leaves 0.05 TON on the contract for storage costs.
+-}
+
+int min_tons_for_storage() asm "1555600 PUSHINT"; ;; 0.0015556 TON
+;;
+;;  Storage
+;;
+;;  uint64 index
+;;  MsgAddressInt collection_address
+;;  MsgAddressInt owner_address
+;;  cell content
+;;
+
+(int, int, slice, slice, cell, cell) load_data() {
+    slice ds = get_data().begin_parse();
+    var (index, collection_address) = (ds~load_uint(64), ds~load_msg_addr());
+    if (ds.slice_bits() > 0) {
+      var (owner_address, content, fee_data) = (ds~load_msg_addr(), ds~load_ref(), ds~load_ref());
+      return (-1, index, collection_address, owner_address, content, fee_data);
+    } else {  
+      return (0, index, collection_address, null(), null(),  null()); ;; nft not initialized yet
+    }
+}
+
+() store_data(int index, slice collection_address, slice owner_address, cell content, cell fee_data) impure {
+    set_data(
+        begin_cell()
+            .store_uint(index, 64)
+            .store_slice(collection_address)
+            .store_slice(owner_address)
+            .store_ref(content)
+            .store_ref(fee_data)
+            .end_cell()
+    );
+}
+
+() send_msg(slice to_address, int amount, int op, int query_id, builder payload, int send_mode) impure inline {
+  var msg = begin_cell()
+    .store_uint(0x10, 6) ;; nobounce - int_msg_info$0 ihr_disabled:Bool bounce:Bool bounced:Bool src:MsgAddress -> 010000
+    .store_slice(to_address)
+    .store_coins(amount)
+    .store_uint(0, 1 + 4 + 4 + 64 + 32 + 1 + 1)
+    .store_uint(op, 32)
+    .store_uint(query_id, 64);
+
+  if (~ builder_null?(payload)) {
+    msg = msg.store_builder(payload);
+  }
+
+  send_raw_message(msg.end_cell(), send_mode);
+}
+
+() recv_internal(int my_balance, int msg_value, cell in_msg_full, slice in_msg_body) impure {
+    if (in_msg_body.slice_empty?()) { ;; ignore empty messages
+        return ();
+    }
+
+    slice cs = in_msg_full.begin_parse();
+    int flags = cs~load_uint(4);
+
+    if (flags & 1) { ;; ignore all bounced messages
+        return ();
+    }
+    slice sender_address = cs~load_msg_addr();
+
+    cs~load_msg_addr(); ;; skip dst
+    cs~load_coins(); ;; skip value
+    cs~skip_bits(1); ;; skip extracurrency collection
+    cs~load_coins(); ;; skip ihr_fee
+    int fwd_fee = muldiv(cs~load_coins(), 3, 2); ;; we use message fwd_fee for estimation of forward_payload costs
+
+    (int init?, int index, slice collection_address, slice owner_address, cell content, cell fee_data) = load_data();
+
+    if (~ init?) {
+      slice new_owner = in_msg_body~load_msg_addr();
+      cell uri_content = in_msg_body~load_ref();
+      slice new_fee_recipient_1 = in_msg_body~load_msg_addr();
+      int new_proxy_fee = in_msg_body~load_coins();
+      
+      slice new_fee_recipient_2 = in_msg_body~load_msg_addr();
+
+      cell new_fee_data = begin_cell()
+        .store_slice(new_fee_recipient_1)
+        .store_slice(new_fee_recipient_2)
+        .store_coins(new_proxy_fee)
+        .end_cell();
+      
+      throw_unless(405, equal_slices_bits(collection_address, sender_address));
+
+      store_data(index, collection_address, new_owner, uri_content, new_fee_data);
+      return ();
+    }
+
+    int op = in_msg_body~load_uint(32);
+    int query_id = in_msg_body~load_uint(64);
+
+    if (op == op::transfer()) {
+      throw_unless(401, equal_slices_bits(owner_address, sender_address));
+      slice fee_data_slice = fee_data.begin_parse();
+      var (fee_recipient_1, fee_recipient_2, proxy_fee) = (fee_data_slice~load_msg_addr(), fee_data_slice~load_msg_addr(), fee_data_slice~load_coins());
+      ;; Комиссии (в наноТОН)
+      var mint_fee = 10000000;          ;; 0.01 TON - базовая стоимость минта
+      var service_fee = 10000000;       ;; 0.01 TON - комиссия сервиса
+      var total_required = mint_fee + service_fee + proxy_fee;
+
+      throw_unless(402, msg_value >= total_required);
+      slice new_owner_address = in_msg_body~load_msg_addr();
+      cell new_content = begin_cell()
+        .store_slice(new_owner_address)
+        .store_ref(content)
+        .store_slice(my_address())
+        .store_coins(proxy_fee)
+        .store_slice(fee_recipient_1)
+        .end_cell();
+
+      cell msg = begin_cell()
+        .store_uint(0x18, 6) ;; mode
+        .store_slice(collection_address)
+        .store_coins(mint_fee + service_fee)
+        .store_uint(0, 1 + 4 + 4 + 64 + 32 + 1 + 1)
+        .store_uint(5, 32)
+        .store_uint(query_id, 64)
+        .store_coins(mint_fee)
+        .store_ref(new_content)
+        .end_cell();
+
+      send_raw_message(msg, 1);
+    
+      if (fee_recipient_2.preload_uint(2) == 0) {
+        send_msg(fee_recipient_1, proxy_fee, 0, 0, null(), 3);
+      } else {
+        int fee_80_percent = proxy_fee * 80 / 100;
+        int fee_20_percent = proxy_fee - fee_80_percent;
+        send_msg(fee_recipient_1, fee_80_percent, 0, 0, null(), 3);
+        send_msg(fee_recipient_2, fee_20_percent, 0, 0, null(), 3);
+      }
+      return ();
+    }
+    if (op == op::get_static_data()) {
+      send_msg(sender_address, 0, op::report_static_data(), query_id, begin_cell().store_uint(index, 256).store_slice(collection_address), 64);  ;; carry all the remaining value of the inbound message
+      return ();
+    }
+    if (op == op::update_settings()) {
+      slice new_content = in_msg_body~load_ref().begin_parse();
+      cell new_uri_content = new_content~load_ref();
+      throw_unless(405, equal_slices_bits(collection_address, sender_address));
+      store_data(index, collection_address, owner_address, new_uri_content, fee_data);
+      return ();
+    }
+    if (op == op::withdraw()) {
+      raw_reserve(min_tons_for_storage(), 0);
+      ;; Manual fee withdrawal
+      throw_unless(401, equal_slices_bits(sender_address, owner_address));
+      int withdraw_amount = my_balance - min_tons_for_storage();
+      throw_unless(402, withdraw_amount > 0);
+      send_msg(owner_address, 0, 0, query_id, null(), 128);
+      return ();
+    }
+}
+
+;;
+;;  GET Methods
+;;
+
+(int, int, slice, slice, cell, cell) get_nft_data() method_id {
+  (int init?, int index, slice collection_address, slice owner_address, cell content, cell fee_data) = load_data();
+  return (init?, index, collection_address, owner_address, content, fee_data);
+}
+

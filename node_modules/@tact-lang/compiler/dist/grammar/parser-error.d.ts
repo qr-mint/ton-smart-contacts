@@ -1,0 +1,47 @@
+import type { ErrorDisplay } from "../error/display";
+export declare const syntaxErrorSchema: <T, U>(display: ErrorDisplay<T>, handle: (t: T) => U) => {
+    constant: {
+        duplicate: (attr: string) => U;
+        notAbstract: () => U;
+        tooAbstract: () => U;
+    };
+    function: {
+        duplicate: (attr: string) => U;
+        notAbstract: () => U;
+        tooAbstract: () => U;
+    };
+    topLevelConstantWithAttribute: () => U;
+    literalTooLong: () => U;
+    extraneousComma: () => U;
+    duplicateField: (name: string) => U;
+    restShouldBeLast: () => U;
+    importWithBackslash: () => U;
+    reservedVarPrefix: (prefix: string) => U;
+    notCallable: () => U;
+    noBouncedWithoutArg: () => U;
+    noBouncedWithString: () => U;
+    noConstantDecl: () => U;
+    noFunctionDecl: () => U;
+    expected: (expects: ReadonlySet<string>) => U;
+    invalidFuncId: () => U;
+    reservedFuncId: () => U;
+    numericFuncId: () => U;
+    leadingZeroUnderscore: () => U;
+    noFolderImports: () => U;
+    invalidImport: () => U;
+    escapingImport: () => U;
+    asNotAllowed: () => U;
+    multipleOptionals: () => U;
+    onlyOptionalOfNamed: () => U;
+    genericArgCount: (name: string, expectedCount: number, gotCount: number) => U;
+    unknownType: (name: string) => U;
+    onlyBouncedOfNamed: () => U;
+    mapOnlyOneAs: (name: "key" | "value") => U;
+    cannotBeOptional: (name: "key" | "value") => U;
+    onlyTypeId: (name: "key" | "value") => U;
+    fieldOnlyOneAs: () => U;
+    noOptionalFieldType: () => U;
+    fieldMustBeNamed: () => U;
+    unknownGeneric: () => U;
+};
+export type SyntaxErrors<T> = ReturnType<typeof syntaxErrorSchema<unknown, T>>;

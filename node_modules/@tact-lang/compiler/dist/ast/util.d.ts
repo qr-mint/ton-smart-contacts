@@ -1,0 +1,25 @@
+import type { Address, Cell, Slice } from "@ton/core";
+import type * as A from "./ast";
+import type { FactoryAst } from "./ast-helpers";
+import type { SrcInfo } from "../grammar";
+export declare const getAstUtil: ({ createNode }: FactoryAst) => {
+    makeUnaryExpression: (op: A.AstUnaryOperation, operand: A.AstExpression) => A.AstExpression;
+    makeBinaryExpression: (op: A.AstBinaryOperation, left: A.AstExpression, right: A.AstExpression) => A.AstExpression;
+    makeNumberLiteral: (n: bigint, loc: SrcInfo) => A.AstNumber;
+    makeBooleanLiteral: (b: boolean, loc: SrcInfo) => A.AstBoolean;
+    makeSimplifiedStringLiteral: (s: string, loc: SrcInfo) => A.AstSimplifiedString;
+    makeNullLiteral: (loc: SrcInfo) => A.AstNull;
+    makeCellLiteral: (c: Cell, loc: SrcInfo) => A.AstCell;
+    makeSliceLiteral: (s: Slice, loc: SrcInfo) => A.AstSlice;
+    makeAddressLiteral: (a: Address, loc: SrcInfo) => A.AstAddress;
+    makeStructFieldValue: (fieldName: string, val: A.AstLiteral, loc: SrcInfo) => A.AstStructFieldValue;
+    makeStructValue: (fields: A.AstStructFieldValue[], type: A.AstId, loc: SrcInfo) => A.AstStructValue;
+};
+export type AstUtil = ReturnType<typeof getAstUtil>;
+export declare function checkIsUnaryOpNode(ast: A.AstExpression): boolean;
+export declare function checkIsBinaryOpNode(ast: A.AstExpression): boolean;
+export declare function checkIsBinaryOp_With_RightValue(ast: A.AstExpression): boolean;
+export declare function checkIsBinaryOp_With_LeftValue(ast: A.AstExpression): boolean;
+export declare function checkIsNumber(ast: A.AstExpression, n: bigint): boolean;
+export declare function checkIsName(ast: A.AstExpression): boolean;
+export declare function checkIsBoolean(ast: A.AstExpression, b: boolean): boolean;

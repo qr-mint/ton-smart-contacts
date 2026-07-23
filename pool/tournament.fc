@@ -3,9 +3,9 @@
 
 int min_tons_for_storage() asm "1555600 PUSHINT"; ;; 0.0015556 TON
 
-(slice) load_data() {
+(int, slice) load_data() {
     slice ds = get_data().begin_parse();
-    return (ds~load_msg_addr());
+    return (ds~load_uint(64), ds~load_msg_addr());
 }
 
 () send_msg(slice to_address, int amount, int op, int query_id, builder payload, int send_mode) impure inline {
@@ -40,14 +40,13 @@ int min_tons_for_storage() asm "1555600 PUSHINT"; ;; 0.0015556 TON
     int op = in_msg_body~load_uint(32);
     int query_id = in_msg_body~load_uint(64);
     
-    (slice owner_address) = load_data();
-    
-    if (op == op::transfer_notification()) {
-        in_msg_body~load_coins();
-        in_msg_body~load_msg_addr();
+    (int index, slice owner_address) = load_data();
+    throw_unless(401, equal_slices_bits(sender_address, owner_address));
+
+    if (op == op::batch_transfer_jetton()) {
         int fee = 50000000;
-        
         throw_unless(402, msg_value >= fee); ;; 0.005
+        slice jetton_address = in_msg_body~load_msg_addr();
         cell recipients = in_msg_body~load_dict();
         int counter = 0;
         do {
@@ -63,7 +62,7 @@ int min_tons_for_storage() asm "1555600 PUSHINT"; ;; 0.0015556 TON
                 
 
                 cell body_trasfer = begin_cell()
-                    .store_uint(op::transfer(), 32) ;; op::transfer jetton
+                    .store_uint(op::transfer_jetton(), 32) ;; op::transfer jetton
                     .store_uint(query_id, 64)
                     .store_coins(amount)
                     .store_slice(recipient_addr)
@@ -76,7 +75,7 @@ int min_tons_for_storage() asm "1555600 PUSHINT"; ;; 0.0015556 TON
                 ;; Отправляем Jetton
                 var msg = begin_cell()
                     .store_uint(0x18, 6)
-                    .store_slice(sender_address)
+                    .store_slice(jetton_address)
                     .store_coins(fee) ;; gas
                     .store_uint(1, 1 + 4 + 4 + 64 + 32 + 1 + 1)
                     .store_ref(body_trasfer)
@@ -86,7 +85,7 @@ int min_tons_for_storage() asm "1555600 PUSHINT"; ;; 0.0015556 TON
             }
         } until ( ~ f?);
     }
-    if (op == op::transfer_ton()) {
+    if (op == op::batch_transfer_ton()) {
         cell recipients = in_msg_body~load_dict();
         int counter = 0;
         do {
@@ -102,45 +101,15 @@ int min_tons_for_storage() asm "1555600 PUSHINT"; ;; 0.0015556 TON
             }
         }  until ( ~ f?);
     }
-    if (op == op::withdraw()) {
-        raw_reserve(min_tons_for_storage(), 0);
-        ;; Manual fee withdrawal
-        throw_unless(401, equal_slices_bits(sender_address, owner_address));
-        int withdraw_amount = my_balance - min_tons_for_storage();
-        throw_unless(402, withdraw_amount > 0);
-        send_msg(owner_address, 0, 0, query_id, null(), 128);
-        return ();
-    }
-    if (op == op::withdraw_token()) {
-        throw_unless(401, equal_slices_bits(sender_address, owner_address));
-        int amount = in_msg_body~load_coins();
-        slice jetton_address = in_msg_body~load_msg_addr();
-        int fee = 50000000;
-        cell body_trasfer = begin_cell()
-            .store_uint(op::transfer(), 32) ;; op::transfer jetton
-            .store_uint(query_id, 64)
-            .store_coins(amount)
-            .store_slice(owner_address)
-            .store_slice(owner_address)
-            .store_uint(0, 1)
-            .store_coins(0)
-            .store_uint(0, 1)
-            .end_cell();
-        
-            ;; Отправляем Jetton
-        var msg = begin_cell()
-            .store_uint(0x18, 6)
-            .store_slice(jetton_address)
-            .store_coins(fee) ;; gas
-            .store_uint(1, 1 + 4 + 4 + 64 + 32 + 1 + 1)
-            .store_ref(body_trasfer)
-            .end_cell();
-            
-        send_raw_message(msg, 64);
+
+    if (op == op::change_owner()) { ;; change owner
+      slice new_owner = in_msg_body~load_msg_addr();
+      save_data(index, new_owner);
+      return ();
     }
 }
 
-(slice) get_batch_data() method_id {
-  (slice owner_address) = load_data();
-  return (owner_address);
+(int, slice) get_pool() method_id {
+  (int index, slice owner_address) = load_data();
+  return (index, owner_address);
 }

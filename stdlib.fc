@@ -685,6 +685,7 @@ builder store_bool(builder b, int value) inline {
     return b.store_int(value, 1);
 }
 
+
 ;; ADDRESS NONE
 ;; addr_none$00 = MsgAddressExt; https://github.com/ton-blockchain/ton/blob/8a9ff339927b22b72819c5125428b70c406da631/crypto/block/block.tlb#L100
 

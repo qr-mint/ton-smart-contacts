@@ -8,6 +8,7 @@
 -}
 
 int min_tons_for_storage() asm "1555600 PUSHINT"; ;; 0.0015556 TON
+
 ;;
 ;;  Storage
 ;;
@@ -21,7 +22,7 @@ int min_tons_for_storage() asm "1555600 PUSHINT"; ;; 0.0015556 TON
     slice ds = get_data().begin_parse();
     var (index, collection_address) = (ds~load_uint(64), ds~load_msg_addr());
     if (ds.slice_bits() > 0) {
-      var (owner_address, content, fee_recipient, proxy_fee) = (ds~load_msg_addr(), ds~load_ref(), ds~load_msg_addr(), ds~load_coins());
+      var (owner_address, content, fee_recipient, proxy_fee) = (ds~load_msg_addr(), ds~load_ref(), ds~load_msg_addr(), ds~load_uint(16));
       return (-1, index, collection_address, owner_address, content, fee_recipient, proxy_fee);
     } else {  
       return (0, index, collection_address, null(), null(), null(), 0); ;; nft not initialized yet
@@ -36,7 +37,7 @@ int min_tons_for_storage() asm "1555600 PUSHINT"; ;; 0.0015556 TON
             .store_slice(owner_address)
             .store_ref(content)
             .store_slice(fee_recipient)
-            .store_coins(proxy_fee)
+            .store_uint(proxy_fee, 16)
             .end_cell()
     );
 }
@@ -57,9 +58,85 @@ int min_tons_for_storage() asm "1555600 PUSHINT"; ;; 0.0015556 TON
   send_raw_message(msg.end_cell(), send_mode);
 }
 
+() transfer_ownership(int my_balance, int index, slice collection_address, slice owner_address, cell content, slice fee_recipient, int proxy_fee, slice sender_address, int query_id, slice in_msg_body, int fwd_fees) impure inline {
+    throw_unless(401, equal_slices_bits(sender_address, owner_address));
+
+    slice new_owner_address = in_msg_body~load_msg_addr();
+    force_chain(new_owner_address);
+    slice response_destination = in_msg_body~load_msg_addr();
+    in_msg_body~load_int(1); ;; this nft don't use custom_payload
+    int forward_amount = in_msg_body~load_coins();
+    throw_unless(708, slice_bits(in_msg_body) >= 1);
+
+    int rest_amount = my_balance - min_tons_for_storage();
+    if (forward_amount) {
+      rest_amount -= (forward_amount + fwd_fees);
+    }
+    int need_response = response_destination.preload_uint(2) != 0; ;; if NOT addr_none: 00
+    if (need_response) {
+      rest_amount -= fwd_fees;
+    }
+
+    throw_unless(402, rest_amount >= 0); ;; base nft spends fixed amount of gas, will not check for response
+
+    if (forward_amount) {
+      send_msg(new_owner_address, forward_amount, op::ownership_assigned(), query_id, begin_cell().store_slice(owner_address).store_slice(in_msg_body), 1);  ;; paying fees, revert on errors
+    }
+    if (need_response) {
+      force_chain(response_destination);
+      send_msg(response_destination, rest_amount, op::excesses(), query_id, null(), 1); ;; paying fees, revert on errors
+    }
+
+    store_data(index, collection_address, new_owner_address, content, fee_recipient, proxy_fee);
+}
+
 () recv_internal(int my_balance, int msg_value, cell in_msg_full, slice in_msg_body) impure {
     if (in_msg_body.slice_empty?()) { ;; ignore empty messages
-        return ();
+      (int init?, int index, slice collection_address, slice owner_address, cell content, slice fee_recipient, int proxy_fee) = load_data();
+      int re_msg_value = msg_value;
+      var mint_fee = 10000000;          ;; 0.01 TON - базовая стоимость минта
+      if (msg_value > 0) {
+        if (proxy_fee == 0) {
+          raw_reserve(min_tons_for_storage() + mint_fee, 0);
+          send_msg(fee_recipient, 0, 0, 0, null(), 3);
+          return ();
+        }
+      
+        int proxy_amount = muldiv(msg_value, proxy_fee, 100000);
+        int remaining_amount = msg_value - proxy_amount;
+        if (remaining_amount > 0) {
+          raw_reserve(min_tons_for_storage() + mint_fee + proxy_amount, 0);
+          send_msg(fee_recipient, 0, 0, 0, null(), 3);
+        }
+        var f_mint_fee = 3000000;
+        throw_unless(402, msg_value >= mint_fee);
+        slice new_owner_address = in_msg_body~load_msg_addr();
+        slice cs = in_msg_full.begin_parse();
+        int flags = cs~load_uint(4);
+
+        if (flags & 1) { ;; ignore all bounced messages
+          return ();
+        }
+        slice sender_address = cs~load_msg_addr();
+        cell new_content = begin_cell()
+          .store_slice(sender_address)
+          .store_ref(content)
+          .store_slice(fee_recipient)
+          .store_uint(proxy_fee, 16)
+          .end_cell();
+        cell msg = begin_cell()
+          .store_uint(0x18, 6) ;; mode
+          .store_slice(collection_address)
+          .store_coins(mint_fee)
+          .store_uint(0, 1 + 4 + 4 + 64 + 32 + 1 + 1)
+          .store_uint(5, 32)
+          .store_uint(0, 64)
+          .store_coins(f_mint_fee)
+          .store_ref(new_content)
+          .end_cell();
+        send_raw_message(msg, 1);
+      }
+      return ();
     }
 
     slice cs = in_msg_full.begin_parse();
@@ -82,9 +159,10 @@ int min_tons_for_storage() asm "1555600 PUSHINT"; ;; 0.0015556 TON
       slice new_owner = in_msg_body~load_msg_addr();
       cell uri_content = in_msg_body~load_ref();
       slice new_fee_recipient = in_msg_body~load_msg_addr();
-      int new_proxy_fee = in_msg_body~load_coins();
+      int new_proxy_fee = in_msg_body~load_uint(16);
       throw_unless(405, equal_slices_bits(collection_address, sender_address));
-      
+      throw_unless(402, new_proxy_fee >= 0);
+      throw_unless(402, new_proxy_fee <= 10000);
       store_data(index, collection_address, new_owner, uri_content, new_fee_recipient, new_proxy_fee);
       return ();
     }
@@ -93,33 +171,7 @@ int min_tons_for_storage() asm "1555600 PUSHINT"; ;; 0.0015556 TON
     int query_id = in_msg_body~load_uint(64);
 
     if (op == op::transfer()) {
-      throw_unless(401, equal_slices_bits(owner_address, sender_address));
-      ;; Комиссии (в наноТОН)
-      var mint_fee = 10000000;          ;; 0.01 TON - базовая стоимость минта
-      var service_fee = 10000000;       ;; 0.01 TON - комиссия сервиса
-      var total_required = mint_fee + service_fee + proxy_fee;
-
-      throw_unless(402, msg_value >= total_required);
-
-      slice new_owner_address = in_msg_body~load_msg_addr();
-      cell new_content = begin_cell()
-        .store_slice(new_owner_address)
-        .store_ref(content)
-        .store_slice(my_address())
-        .store_coins(proxy_fee)
-        .end_cell();
-      cell msg = begin_cell()
-        .store_uint(0x18, 6) ;; mode
-        .store_slice(collection_address)
-        .store_coins(mint_fee + service_fee)
-        .store_uint(0, 1 + 4 + 4 + 64 + 32 + 1 + 1)
-        .store_uint(5, 32)
-        .store_uint(query_id, 64)
-        .store_coins(3000000)
-        .store_ref(new_content)
-        .end_cell();
-      send_raw_message(msg, 1);
-      send_msg(fee_recipient, proxy_fee, 0, 0, null(), 3);
+      transfer_ownership(my_balance, index, collection_address, owner_address, content, fee_recipient, proxy_fee, sender_address, query_id, in_msg_body, fwd_fee);
       return ();
     }
     if (op == op::get_static_data()) {
@@ -129,17 +181,19 @@ int min_tons_for_storage() asm "1555600 PUSHINT"; ;; 0.0015556 TON
     if (op == op::update_settings()) {
       slice new_content = in_msg_body~load_ref().begin_parse();
       cell new_uri_content = new_content~load_ref();
+      int new_proxy_fee = new_content~load_uint(16);
       throw_unless(405, equal_slices_bits(collection_address, sender_address));
-      store_data(index, collection_address, owner_address, new_uri_content, fee_recipient, proxy_fee);
+      throw_unless(402, new_proxy_fee >= 0);
+      throw_unless(402, new_proxy_fee <= 10000);
+      store_data(index, collection_address, owner_address, new_uri_content, fee_recipient, new_proxy_fee);
       return ();
     }
     if (op == op::withdraw()) {
       raw_reserve(min_tons_for_storage(), 0);
-      ;; Manual fee withdrawal
-      throw_unless(401, equal_slices_bits(sender_address, owner_address));
+      throw_unless(405, equal_slices_bits(owner_address, sender_address));
       int withdraw_amount = my_balance - min_tons_for_storage();
       throw_unless(402, withdraw_amount > 0);
-      send_msg(owner_address, 0, 0, query_id, null(), 128);
+      send_msg(owner_address, 0, 0, 0, null(), 128);
       return ();
     }
 }

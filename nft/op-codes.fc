@@ -8,11 +8,16 @@ int op::report_royalty_params() asm "0xa8cb00ad PUSHINT";
                                     
 int op::jetton_notification() asm "0x7362d09c PUSHINT";
 int op::withdraw() asm "0x77697468 PUSHINT";
+int op::withdraw_token() asm "0x7662d09d PUSHINT";
 int op::update_settings() asm "0x7a97f4f1 PUSHINT";
 int op::change_owner_collection() asm "0x7ahf5f4f1 PUSHINT";
 int op::split_nft() asm "0x75dd3742 PUSHINT";
 int op::merge_nft() asm "0x7hj57651 PUSHINT";
 int op::confirm_merge_nft() asm "0x7fsfhf651 PUSHINT";
+int op::transfer_jetton() asm "0xf8a7ea5 PUSHINT";
 ;; NFTEditable
 int op::transfer_editorship() asm "0x1c04412a PUSHINT";
 int op::editorship_assigned() asm "0x511a4463 PUSHINT";
+
+int op::send() asm "0x73tt3742 PUSHINT";
+int op::send_jetton() asm "0x73jj3742 PUSHINT";

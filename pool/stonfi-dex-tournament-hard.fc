@@ -1,0 +1,344 @@
+#include "../stdlib.fc";
+#include "./op-codes.fc";
+
+(int, slice, slice, slice, int) load_data() {
+    slice ds = get_data().begin_parse();
+    return (ds~load_uint(64), ds~load_msg_addr(),
+        ds~load_msg_addr(), ds~load_msg_addr(), ds~load_uint(8));
+}
+
+cell calculate_lp_payload(slice router_wallet, int min_lp_out) inline {
+  return  begin_cell()
+        .store_uint(0x37c096df, 32)           ;; op::provide_lp
+        .store_slice(router_wallet)           ;; otherTokenWallet
+        .store_slice(my_address())            ;; refundAddress
+        .store_slice(my_address())            ;; excessesAddress
+        .store_uint(now() + 1000, 64)         ;; deadline
+        .store_ref(
+            begin_cell()
+            .store_coins(min_lp_out)      ;; minLpOut
+            .store_slice(my_address())    ;; receiverAddress
+            .store_uint(1, 1)             ;; bothPositive = false (single side)
+            .store_coins(0)               ;; fwdGas
+            .store_uint(0, 1)             ;; customPayload = null
+            .end_cell()
+        )
+        .end_cell();
+}
+
+() provide_liquidity_ton (slice router_pton_wallet, slice router_jetton_wallet, int ton_amount, int min_lp_out) impure inline { 
+    cell lp_payload = calculate_lp_payload(router_jetton_wallet, min_lp_out);
+    cell body = begin_cell()
+        .store_uint(0x01f3835d, 32)           ;; proxy_ton_transfer
+        .store_uint(0, 64)
+        .store_coins(ton_amount)
+        .store_slice(my_address())
+        .store_uint(1, 1)
+        .store_ref(lp_payload)
+        .end_cell();
+    cell msg = begin_cell()
+        .store_uint(0x18, 6)
+        .store_slice(router_pton_wallet)
+        .store_coins(ton_amount + 810000000) ;; amount + 0.81 TON газ
+        .store_uint(1, 107)
+        .store_ref(body)
+        .end_cell();
+    send_raw_message(msg, 1);
+}
+
+() provide_liquidity_jetton (slice router, slice our_jetton_wallet, slice router_jetton_wallet, slice router_pton_wallet, int jetton_amount, int min_lp_out) impure inline {    
+    cell lp_payload = calculate_lp_payload(router_pton_wallet, min_lp_out);
+    cell body = begin_cell()
+        .store_uint(0xf8a7ea5, 32)
+        .store_uint(0, 64)
+        .store_coins(jetton_amount)
+        .store_slice(router)        ;; destination — условно; в реальности нужен адрес Router'а
+        .store_slice(my_address())
+        .store_uint(0, 1)
+        .store_coins(50000000)
+        .store_uint(1, 1)
+        .store_ref(lp_payload)
+        .end_cell();
+   
+    cell msg = begin_cell()
+        .store_uint(0x18, 6)
+        .store_slice(our_jetton_wallet)
+        .store_coins(150000000)
+        .store_uint(1, 1 + 4 + 4 + 64 + 32 + 1 + 1)
+        .store_ref(body)
+        .end_cell();
+
+    send_raw_message(msg, 1);
+}
+
+() save_data(int index, slice owner_address, slice our_jetton_wallet, slice our_lp_wallet, int state) impure inline {
+    set_data(
+        begin_cell()
+        .store_uint(index, 64)
+        .store_slice(owner_address)
+        .store_slice(our_jetton_wallet)
+        .store_slice(our_lp_wallet)
+        .store_uint(state, 8)
+        .end_cell()
+    );
+}
+
+() send_msg(slice to_address, int amount, int op, int query_id, builder payload, int send_mode) impure inline {
+  var msg = begin_cell()
+    .store_uint(0x10, 6) ;; nobounce - int_msg_info$0 ihr_disabled:Bool bounce:Bool bounced:Bool src:MsgAddress -> 010000
+    .store_slice(to_address)
+    .store_coins(amount)
+    .store_uint(0, 1 + 4 + 4 + 64 + 32 + 1 + 1)
+    .store_uint(op, 32)
+    .store_uint(query_id, 64);
+
+  if (~ builder_null?(payload)) {
+    msg = msg.store_builder(payload);
+  }
+
+  send_raw_message(msg.end_cell(), send_mode);
+}
+
+() recv_internal(int my_balance, int msg_value, cell in_msg_full, slice in_msg_body) impure {
+    if (in_msg_body.slice_empty?()) {
+        return ();
+    }
+
+    slice cs = in_msg_full.begin_parse();
+    int flags = cs~load_uint(4);
+
+    if (flags & 1) { ;; ignore all bounced messages
+        return ();
+    }
+    slice sender_address = cs~load_msg_addr();
+
+    int op = in_msg_body~load_uint(32);
+    int query_id = in_msg_body~load_uint(64);
+    
+    (int index, slice owner_address, slice our_jetton_wallet, slice our_lp_wallet, int state) = load_data();
+
+    if (op == op::batch_transfer_jetton()) {
+        throw_unless(401, equal_slices_bits(sender_address, owner_address));
+        int fee = 50000000;
+        throw_unless(402, msg_value >= fee); ;; 0.005
+        slice jetton_address = in_msg_body~load_msg_addr();
+        cell recipients = in_msg_body~load_dict();
+        int counter = 0;
+        do {
+            var (item_index, recipient_data, f?) = recipients~udict::delete_get_min(64);
+            if (f?) {
+                counter += 1;
+                if (counter >= 250) { ;; Limit due to limits of action list size
+                    throw(399);
+                }
+                ;;slice recipient_data = recipients~load_ref().begin_parse();
+                slice recipient_addr = recipient_data~load_msg_addr();
+                int amount = recipient_data~load_coins();
+                
+
+                cell body_trasfer = begin_cell()
+                    .store_uint(op::transfer_jetton(), 32) ;; op::transfer jetton
+                    .store_uint(query_id, 64)
+                    .store_coins(amount)
+                    .store_slice(recipient_addr)
+                    .store_slice(recipient_addr)
+                    .store_uint(0, 1)
+                    .store_coins(0)
+                    .store_uint(0, 1)
+                    .end_cell();
+        
+                ;; Отправляем Jetton
+                var msg = begin_cell()
+                    .store_uint(0x18, 6)
+                    .store_slice(jetton_address)
+                    .store_coins(fee) ;; gas
+                    .store_uint(1, 1 + 4 + 4 + 64 + 32 + 1 + 1)
+                    .store_ref(body_trasfer)
+                    .end_cell();
+            
+                send_raw_message(msg, 3);
+                ;;send_msg(recipient_addr, amount, 0, query_id, null(), 3);
+            }
+        } until ( ~ f?);
+    } elseif (op == op::batch_transfer_ton()) {
+        throw_unless(401, equal_slices_bits(sender_address, owner_address));
+        cell recipients = in_msg_body~load_dict();
+        int counter = 0;
+        do {
+            var (item_index, recipient_data, f?) = recipients~udict::delete_get_min(64);
+            if (f?) {
+                counter += 1;
+                if (counter >= 250) { ;; Limit due to limits of action list size
+                    throw(399);
+                }
+                slice recipient_addr = recipient_data~load_msg_addr();
+                int amount = recipient_data~load_coins();
+                send_msg(recipient_addr, amount, 0, query_id, null(), 3);
+            }
+        }  until ( ~ f?);
+    } elseif (op == op::swap_ton_to_token()) {
+        throw_unless(401, equal_slices_bits(sender_address, owner_address));
+        slice router_pton_wallet = in_msg_body~load_msg_addr();
+        slice askJettonWalletAddress = in_msg_body~load_msg_addr();
+        int min_out = in_msg_body~load_coins();
+                int fee = 300000000;
+        int available = my_balance - fee;
+        throw_unless(402, available > 0);
+        int half_balance = available / 2;
+        cell additional_data = begin_cell()
+            .store_coins(min_out)
+            .store_slice(my_address())
+            .store_coins(10000000)
+            .store_uint(1, 1)         ;; fwdGas
+            .store_ref(
+                begin_cell()
+                .store_coins(half_balance)
+                .end_cell()
+            )             ;; customPayload = null
+            .store_coins(0)               ;; refundFwdGas
+            .store_uint(0, 1)             ;; refundPayload = null
+            .store_uint(10, 16)           ;; refFee (0.1%)
+            .store_uint(0, 2)           ;; referralAddress = null
+            .end_cell();
+        cell swap_payload = begin_cell()
+            .store_uint(0x6664de2a, 32)
+            .store_slice(askJettonWalletAddress)
+            .store_slice(my_address())
+            .store_slice(my_address())
+            .store_uint(now() + 1000, 64)
+            .store_ref(additional_data)
+            .end_cell();
+
+        cell body = begin_cell()
+            .store_uint(0x01f3835d, 32)
+            .store_uint(query_id, 64)
+            .store_coins(half_balance)
+            .store_slice(my_address())
+            .store_uint(1, 1)
+            .store_ref(swap_payload)
+            .end_cell();
+
+   
+        cell msg = begin_cell()
+            .store_uint(0x18, 6)
+            .store_slice(router_pton_wallet)
+            .store_coins(half_balance + fee)
+            .store_uint(1, 107)
+            .store_ref(body)
+            .end_cell();
+        if (state == 0) {
+            save_data(index, owner_address, our_jetton_wallet, our_lp_wallet, 1);  
+        }
+        send_raw_message(msg, 1);
+    } elseif (op == op::add_ton_liquidity_pool()) {
+        throw_unless(401, equal_slices_bits(sender_address, owner_address));
+        slice router_pton_wallet = in_msg_body~load_msg_addr();
+        slice router_jetton_wallet = in_msg_body~load_msg_addr();
+        int ton_amount = in_msg_body~load_coins();
+        int min_lp_out = in_msg_body~load_coins();
+        
+        provide_liquidity_ton(router_pton_wallet, router_jetton_wallet, ton_amount, min_lp_out);
+    } elseif (op == op::add_jetton_liquidity_pool()) {
+        throw_unless(401, equal_slices_bits(sender_address, owner_address));
+        slice router_jetton_wallet = in_msg_body~load_msg_addr();
+        slice router = in_msg_body~load_msg_addr();
+        slice router_pton_wallet = in_msg_body~load_msg_addr();
+        int jetton_amount = in_msg_body~load_coins();
+        int min_lp_out = in_msg_body~load_coins();
+        provide_liquidity_jetton(router, our_jetton_wallet, router_jetton_wallet, router_pton_wallet, jetton_amount, min_lp_out);
+    } elseif (op == op::provide_liquidity_both()) {
+        throw_unless(401, equal_slices_bits(sender_address, owner_address));
+        slice router_jetton_wallet = in_msg_body~load_msg_addr();
+        slice router = in_msg_body~load_msg_addr();
+        slice router_pton_wallet = in_msg_body~load_msg_addr();
+        int ton_amount = in_msg_body~load_coins();
+        int jetton_amount = in_msg_body~load_coins();
+        int min_lp_out = in_msg_body~load_coins();
+        provide_liquidity_jetton(router, our_jetton_wallet, router_jetton_wallet, router_pton_wallet, jetton_amount, min_lp_out);
+        provide_liquidity_ton(router_pton_wallet, router_jetton_wallet, ton_amount, min_lp_out);
+    } elseif (op == op::burn_lp()) {
+        throw_unless(401, equal_slices_bits(sender_address, owner_address));
+        int lp_amount = in_msg_body~load_coins();
+        cell body = begin_cell()
+            .store_uint(0x595f07bc, 32)
+            .store_uint(query_id, 64)
+            .store_coins(lp_amount)
+            .store_uint(0, 2)
+            .store_uint(0, 1)
+            .end_cell();
+        send_raw_message(
+            begin_cell()
+                .store_uint(0x18, 6)
+                .store_slice(our_lp_wallet)
+                .store_coins(300000000)
+                .store_uint(1, 107)
+                .store_ref(body)
+                .end_cell(),
+            1
+        );
+    } elseif (op == op::lp_add_direct_liquidity_pool()) {
+        throw_unless(401, equal_slices_bits(sender_address, owner_address));
+        slice lp_account = in_msg_body~load_msg_addr();
+        int amount0 = in_msg_body~load_coins();
+        int amount1 = in_msg_body~load_coins();
+        int minimumLpToMint = in_msg_body~load_coins();
+        int dexCustomPayloadForwardGasAmount = in_msg_body~load_coins();
+        cell additional_data = begin_cell()
+            .store_slice(my_address())
+            .store_slice(my_address())
+            .end_cell();
+        cell body = begin_cell()
+            .store_uint(0x0ff8bfc6, 32)
+            .store_coins(amount0)
+            .store_coins(amount1)
+            .store_coins(minimumLpToMint)
+            .store_coins(dexCustomPayloadForwardGasAmount)
+            .store_slice(my_address())
+            .store_uint(0, 1)
+            .store_ref(additional_data)
+            .end_cell();
+        cell msg = begin_cell()
+            .store_uint(0x18, 6) ;; mode
+            .store_slice(lp_account)
+            .store_coins(810000000)
+            .store_uint(0, 1 + 4 + 4 + 64 + 32 + 1 + 1)
+            .store_ref(body)
+            .end_cell();
+        send_raw_message(msg, 1); 
+    } elseif (op == op::lp_refund()) {
+        throw_unless(401, equal_slices_bits(sender_address, owner_address));
+        slice lp_account = in_msg_body~load_msg_addr();
+        cell body = begin_cell()
+            .store_uint(0x132b9a2c, 32)
+            .store_uint(query_id, 64)
+            .end_cell();
+        cell msg = begin_cell()
+            .store_uint(0x18, 6) ;; mode
+            .store_slice(lp_account)
+            .store_coins(10000000)
+            .store_uint(0, 1 + 4 + 4 + 64 + 32 + 1 + 1)
+            .store_ref(body)
+            .end_cell();
+        send_raw_message(msg, 1); 
+    } elseif (op == op::transfer_notification()) {
+        int notif_query_id = in_msg_body~load_uint(64);
+        int jetton_amount = in_msg_body~load_coins();
+
+        if (state == 1) {
+            our_jetton_wallet = sender_address;
+            state = 2;
+        } elseif (state == 2) {
+            our_lp_wallet = sender_address;
+            state = 3;
+        }
+
+        save_data(index, owner_address,
+                   our_jetton_wallet, our_lp_wallet, state);
+        return ();
+    }
+}
+
+(int, slice, slice, slice, int) get_pool() method_id {
+  (int index, slice owner_address, slice our_jetton_wallet, slice our_lp_wallet, int state) = load_data();
+  return (index, owner_address, our_jetton_wallet, our_lp_wallet, state);
+}

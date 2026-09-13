@@ -1,0 +1,16 @@
+int op::transfer_jetton() asm "0xf8a7ea5 PUSHINT";
+int op::batch_transfer_ton() asm "0xf8a1ea5 PUSHINT";
+int op::batch_transfer_jetton() asm "0xf8a4ea5 PUSHINT";
+
+int op::swap_ton_to_token() asm "0xb8a1ea5 PUSHINT";
+int op::swap_token_to_ton() asm "0xb3a3ea5 PUSHINT";
+int op::add_ton_liquidity_pool() asm "0xb72ea5 PUSHINT";
+int op::add_jetton_liquidity_pool() asm "0xb832ea5 PUSHINT";
+int op::provide_liquidity_both() asm "0xbb832ea5 PUSHINT";
+int op::transfer_notification() asm "0x7362d09c PUSHINT";
+int op::burn_lp() asm "0xbb62d09c PUSHINT";
+int op::change_owner() asm "0xdb2d094c PUSHINT";
+
+int op::lp_add_direct_liquidity_pool() asm "0xba42d09d PUSHINT";
+int op::lp_refund() asm "0xb142d09d PUSHINT";
+
